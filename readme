@@ -1,0 +1,98 @@
+# Last.FM Recommendation System - An Introduction to Collaborative Filtering
+
+* The dataset contains information about users, gender, age, and which artists they have listened to on Last.FM. In this notebook, we use only Germany's data and transform the data into a frequency matrix.
+
+We are going to implement 2 types of collaborative filtering:
+
+1. Item based: Which takes similarities between items' consumption histories
+2. User Based that considers siminarities between user consumption histories and item similarities
+import pandas as pd
+from scipy.spatial.distance import cosine
+
+# Disable jedi autocompleter
+%config Completer.use_jedi = False
+df = pd.read_csv('../Datasets/lastfm-matrix-germany.csv')
+df.sample(5)
+df.info()
+# downcast the datatypes of all column, in order to save some memory
+cols = df.columns
+df[cols] = df[cols].apply(pd.to_numeric, downcast='unsigned')
+df.info()
+## Item Based Collaborative Filtering
+
+In item based collaborative filtering we don not care about the user column. So let's drop it
+df_de = df.drop('user', axis=1)
+df_de.info()
+df_de.head()
+# Before we caluculate the similarities we heed to create a place holder as a pandas DF
+ibcf = pd.DataFrame(index=df_de.columns, columns=df_de.columns)
+Now we can start filling in the similarities. We will use the `cosine` similarities from `scipy`
+# Lets fill in our place holder with cosine similarities
+# Loop through the columns
+for i in range(ibcf.shape[1]):
+    # Loop through the columns for each column
+    for j in range(ibcf.shape[1]):
+      # Fill in placeholder with cosine similarities
+      ibcf.iloc[i,j] = 1 - cosine(df_de.iloc[:,i], df_de.iloc[:,j]) 
+        
+# I don't like using loops in python and particularly not a cascade of loops.
+# This code is provisory, until I find a more elegant solution.
+# Sorry for that!
+ibcf.head()
+With our similarity matrix filled out we can sort each columns separately  and save the names of the top 10 songs of each column in a new DF
+# Create a placeholder with 10 rows and the same columns as ibcf
+top = 10
+top10 = pd.DataFrame(index=range(top), columns=ibcf.columns)
+for c in ibcf.columns:
+    top10[c] = ibcf[c].sort_values(ascending=False).index[1:11]
+# Show top 10 similarities of the first 10 songs
+top10.iloc[:,:9]
+## User Based Collaborative Filtering
+
+The steps for creating a user based recommendation system are the following:
+
+1. Generate an item based recommendation system
+2. Check what products the user has consumed
+3. For each item the user has consumed, get the top X neighbours
+4. Get the consumption record of the user for each neighbour
+5. Calculate a similarity score
+6. Recommend the items with the highest score
+
+We first need a formula to compute a similarity score. We use the sum of the product between purchase history and item similarity. We then divide that figure by the sum of the similarities:
+# Helper function to get similarity scores
+def getScore(history, similarities):
+   return sum(history*similarities)/sum(similarities)
+Now we just have to apply this function to the data frames.
+# Place holder
+df_sim = pd.DataFrame(index=df.index, columns=df.columns)
+df_sim.iloc[:, :1] = df.iloc[:, :1]
+We now loop through the rows and columns filling in empty spaces with similarity scores.  
+Note that we score items that the user has already consumed as 0, because there is no point recommending it again.
+#Loop through all rows, skip the user column, and fill with similarity scores
+for i in range(0,len(df_sim.index)):
+    for j in range(1,len(df_sim.columns)):
+        user = df_sim.index[i]
+        product = df_sim.columns[j]
+ 
+        if df.iloc[i, j] == 1:
+            df_sim.iloc[i, j] = 0
+        else:
+            product_top_names = top10[product]
+            product_top_sims = ibcf.loc[product].sort_values(ascending=False)[1:11]
+            user_purchases = df_de.loc[user,product_top_names]
+ 
+            df_sim.iloc[i][j] = getScore(user_purchases,product_top_sims)
+df_sim.head()
+Instead of having the matrix filled with similarity scores, however, it would be nice to see the song names.
+# We can now produc a matrix of User Based recommendations as follows:
+
+recommendations = pd.DataFrame(index=df_sim.index, columns=['user','1','2','3','4','5','6'])
+recommendations.iloc[0:,0] = df_sim.iloc[:,0]
+
+for i in range(len(df_sim.index)):
+    recommendations.iloc[i,1:] = df_sim.iloc[i,:].sort_values(ascending=False).iloc[1:7,].index.T
+
+recommendations.head()
+## Reference
+
+* S. Marafi, [Collaborative Filtering with Python](http://www.salemmarafi.com/code/collaborative-filtering-with-python/)
